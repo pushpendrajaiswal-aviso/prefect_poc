@@ -1,0 +1,31 @@
+name: pushpendra-prefect-sample
+prefect-version: "3.7.6"
+
+# --- where the worker's pod gets the code at run time ---
+pull:
+  - prefect.deployments.steps.git_clone:
+      repository: https://github.com/pushpendrajaiswal-aviso/prefect_poc   # adjust to your remote
+      branch: main
+      access_token: "{{ prefect.blocks.secret.github-token }}"  # existing Secret block
+
+deployments:
+  - name: customer-prod
+    entrypoint: prefect_poc.py:main
+    description: "prefect sample"
+    work_pool:
+      name: eks-pool            # existing Kubernetes work pool
+      job_variables:
+        image: "{{ $ACCOUNT }}.dkr.ecr.{{ $REGION }}.amazonaws.com/aviso-fastlane:latest"  # from env ACCOUNT/REGION (load deploy/fastlane.env before `prefect deploy`)
+        # Launch flow-run pods in OUR namespace (the pool defaults to `default`, where the
+        # fastlane-env Secret + RBAC don't exist -> "Flow run could not start").
+        namespace: "{{ $NAMESPACE }}"
+        # default pod size; per-run overrides come from the bridge (size_for(tenant))
+        memory: "4Gi"
+        cpu: "2"
+        # service_account_name: fastlane-sa   # IRSA: grants AWS access without static keys
+    # Default parameters are supplied per-run by the trigger; left empty here.
+    parameters: {}
+    # Fan-out cap across all tenants (per-tenant max-1 is enforced in-flow).
+    concurrency_limit:
+      limit: 50
+      collision_strategy: ENQUEUE
